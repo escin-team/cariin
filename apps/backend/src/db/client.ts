@@ -36,19 +36,17 @@ interface RlsContext {
   tenantId?: string;
 }
 
-export async function withRlsContext<T>(
-  context: RlsContext,
-  callback: () => Promise<T>
-): Promise<T> {
+export async function setRlsContext(
+  tx: any, // Menggunakan any atau Prisma.TransactionClient jika di-import
+  context: RlsContext
+): Promise<void> {
   // Set RLS variables via parameterized query — Rule [DB-3]: TIDAK BOLEH $executeRawUnsafe
   if (context.userId) {
-    await prismaApp.$executeRaw`SELECT set_config('app.current_user_id', ${context.userId}, true)`;
+    await tx.$executeRaw`SELECT set_config('app.current_user_id', ${context.userId}, true)`;
   }
   if (context.tenantId) {
-    await prismaApp.$executeRaw`SELECT set_config('app.current_tenant_id', ${context.tenantId}, true)`;
+    await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${context.tenantId}, true)`;
   }
-
-  return callback();
 }
 
 /**

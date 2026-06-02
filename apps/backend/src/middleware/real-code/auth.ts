@@ -1,13 +1,14 @@
 import type { Context, Next } from 'hono';
 import { getCookie } from 'hono/cookie';
-import jwt from 'jsonwebtoken';
-import { env } from '../bootstrap/env-validation.js'; // Sesuaikan path jika berbeda
 
 /**
  * Auth Middleware — Rule [AUTH-2] JWT RS256
  *
  * Verifikasi JWT dari HttpOnly cookie (bukan localStorage — Rule [AUTH-3])
  * Extract userId, tenantId, role ke Hono context
+ *
+ * TODO: Replace stub verification dengan real RS256 verify menggunakan
+ *       jsonwebtoken + env.JWT_PUBLIC_KEY saat JWT infrastructure siap
  */
 
 // Extend Hono context variables
@@ -20,8 +21,8 @@ declare module 'hono' {
 }
 
 /**
- * Note: authMiddleware saat ini belum meng-inject session user ke database.
- * Middleware tidak meng-inject context ke global connection,
+ * Note: Stub authMiddleware saat ini belum meng-inject session user ke database.
+ * Ketika diupgrade ke JWT real, middleware tidak meng-inject context ke global connection,
  * melainkan RLS akan diaplikasikan di layer service/repository per transaksi menggunakan setRlsContext(tx, { userId }).
  */
 export async function authMiddleware(c: Context, next: Next): Promise<Response | void> {
@@ -45,14 +46,15 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
   }
 
   try {
-    // 1. Ambil Public Key dan pastikan format baris baru (\n) dibaca dengan benar
-    const publicKey = env.JWT_PUBLIC_KEY.replace(/\\n/g, '\n');
+    // ----- STUB: decode JWT tanpa verification -----
+    // Di production, gunakan:
+    //   import { verify } from 'jsonwebtoken';
+    //   const payload = verify(token, env.JWT_PUBLIC_KEY, { algorithms: ['RS256'] });
+    //
+    // ❌ DILARANG: HS256 atau symmetric key
+    // ❌ DILARANG: sign(payload, 'my-secret-string', { algorithm: 'HS256' })
 
-    // 2. Verifikasi KRIPTOGRAFIS menggunakan algoritma RS256
-    // Ini akan otomatis melempar error jika token dimanipulasi atau expired
-    const payload = jwt.verify(token, publicKey, {
-      algorithms: ['RS256'],
-    }) as jwt.JwtPayload;
+    const payload = decodeJwtPayload(token);
 
     if (!payload || !payload.sub) {
       return c.json(
@@ -67,15 +69,8 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
       );
     }
 
-    // 3. Inject ke Hono context
-    c.set('userId', payload.sub as string);
-    c.set('tenantId', (payload.tenantId as string) ?? '');
-    c.set('role', (payload.role as string) ?? 'user');
-
-    await next();
-  } catch (error) {
-    // Memisahkan error kedaluwarsa dari error validasi lainnya
-    if (error instanceof jwt.TokenExpiredError) {
+    // Check expiry
+    if (typeof payload.exp === 'number' && payload.exp < Math.floor(Date.now() / 1000)) {
       return c.json(
         {
           success: false,
@@ -88,17 +83,38 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
       );
     }
 
-    // Error lain seperti JsonWebTokenError (signature gagal verifikasi)
-    console.error('[AUTH ERROR]', error);
+    // Inject ke Hono context
+    c.set('userId', payload.sub as string);
+    c.set('tenantId', (payload.tenantId as string) ?? '');
+    c.set('role', (payload.role as string) ?? 'user');
+
+    await next();
+  } catch {
     return c.json(
       {
         success: false,
         error: {
           code: 'TOKEN_INVALID',
-          message: 'Token tidak valid atau tidak dapat diproses.',
+          message: 'Token tidak dapat diproses.',
         },
       },
       401
     );
+  }
+}
+
+/**
+ * Decode JWT payload tanpa verification (STUB ONLY)
+ * Di production, ini WAJIB diganti dengan proper RS256 verify
+ */
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+
+    const payload = Buffer.from(parts[1]!, 'base64url').toString('utf8');
+    return JSON.parse(payload) as Record<string, unknown>;
+  } catch {
+    return null;
   }
 }

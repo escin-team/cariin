@@ -1,4 +1,4 @@
-import { prismaApp, withRlsContext } from '../../db/client.js';
+import { prismaApp, setRlsContext } from '../../db/client.js';
 import { env } from '../../bootstrap/env-validation.js';
 import type {
   InitiateTopupDto,
@@ -33,33 +33,40 @@ export const walletService = {
   ): Promise<InitiateTopupResult> {
     const amountBigInt = BigInt(body.amount);
 
-    return withRlsContext({ userId }, async () => {
-      return prismaApp.$transaction(async (tx) => {
-        // Idempotency check
-        const existingTx = await tx.walletTransaction.findUnique({
-          where: { idempotencyKey },
-        });
+    return prismaApp.$transaction(async (tx) => {
+      // Set RLS Context inside the transaction
+      await setRlsContext(tx, { userId });
 
-        if (existingTx) {
-          return {
-            transactionId: existingTx.id,
-            amount: serializeBigInt(existingTx.amount)!,
-            status: existingTx.status as InitiateTopupResult['status'],
-            paymentMethod: existingTx.paymentMethod ?? 'UNKNOWN',
-            vaNumber: '8888' + existingTx.id.substring(0, 8),
-            expiresAt: new Date(existingTx.createdAt.getTime() + 24 * 60 * 60 * 1000),
-            idempotent: true,
-          };
+      // Idempotency check
+      const existingTx = await tx.walletTransaction.findUnique({
+        where: { idempotencyKey },
+      });
+
+      if (existingTx) {
+        // Prevent IDOR: pastikan transaksi ini benar milik user yang request
+        if (existingTx.userId !== userId) {
+          throw new Error('UNAUTHORIZED');
         }
 
-        // Pastikan wallet ada
-        const wallet = await tx.wallet.findUnique({
-          where: { userId },
-        });
+        return {
+          transactionId: existingTx.id,
+          amount: serializeBigInt(existingTx.amount)!,
+          status: existingTx.status as InitiateTopupResult['status'],
+          paymentMethod: existingTx.paymentMethod ?? 'UNKNOWN',
+          vaNumber: '8888' + existingTx.id.substring(0, 8),
+          expiresAt: new Date(existingTx.createdAt.getTime() + 24 * 60 * 60 * 1000),
+          idempotent: true,
+        };
+      }
 
-        if (!wallet) {
-          throw new Error('WALLET_NOT_FOUND');
-        }
+      // Pastikan wallet ada
+      const wallet = await tx.wallet.findUnique({
+        where: { userId },
+      });
+
+      if (!wallet) {
+        throw new Error('WALLET_NOT_FOUND');
+      }
 
         // Create pending transaction
         const transaction = await tx.walletTransaction.create({
@@ -85,7 +92,6 @@ export const walletService = {
           idempotent: false,
         };
       });
-    });
   },
 
   /**
@@ -141,8 +147,8 @@ export const walletService = {
         throw new Error('TRANSACTION_FAILED');
       }
 
-      // Kita bisa panggil executeRaw secara aman dengan userId yang sudah didapat
-      await tx.$executeRaw`SELECT set_config('app.current_user_id', ${transaction.userId}, true)`;
+      // Set RLS Context untuk memastikan update balance dilakukan dengan userId yang sesuai
+      await setRlsContext(tx, { userId: transaction.userId });
 
       // 2. Pessimistic Lock
       const lockedWallet = await tx.$queryRaw<[{ id: string; balance: bigint; user_id: string }]>`
