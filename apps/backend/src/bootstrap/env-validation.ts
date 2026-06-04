@@ -39,6 +39,12 @@ const envSchema = z.object({
   //Google
   // Pastikan ini ada di dalam skema env kamu
   GOOGLE_CLIENT_ID: z.string().min(1, 'Google Client ID wajib diisi'),
+
+  // Role-based redirect URLs (optional dengan fallback)
+  SUPERADMIN_URL: z.string().url().optional(),
+  MITRA_OWNER_URL: z.string().url().optional(),
+  MITRA_STAFF_URL: z.string().url().optional(),
+  CUSTOMER_URL: z.string().url().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

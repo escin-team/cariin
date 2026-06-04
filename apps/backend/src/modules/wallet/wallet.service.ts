@@ -1,6 +1,6 @@
-import { prismaApp, prismaAuth, withRlsContext } from '../../db/client';
-import { ConfirmTopupSchema, InitiateTopupSchema } from './wallet.schema';
-import { env } from '../../bootstrap/env-validation';
+import { prismaApp, prismaAuth, withRlsContext } from '../../db/client.js';
+import { ConfirmTopupSchema, InitiateTopupSchema } from './wallet.schema.js';
+import { env } from '../../bootstrap/env-validation.js';
 import { z } from 'zod';
 
 function serializeBigInt(obj: any): any {
@@ -75,10 +75,10 @@ export const walletService = {
         return existingTx;
       }
 
-      const walletLocked = await prismaApp.$queryRawUnsafe(
-        `SELECT balance FROM wallets WHERE id = $1::uuid FOR UPDATE`,
-        transaction.walletId
-      ) as Array<{ balance: bigint }>;
+      // ✅ FIX: Ganti $queryRawUnsafe ke $queryRaw untuk menghindari SQL injection risk
+      const walletLocked = await prismaApp.$queryRaw<
+        Array<{ balance: bigint }>
+      >`SELECT balance FROM wallets WHERE id = ${transaction.walletId}::uuid FOR UPDATE`;
       
       if (!walletLocked || walletLocked.length === 0) {
         throw new Error('WALLET_NOT_FOUND');

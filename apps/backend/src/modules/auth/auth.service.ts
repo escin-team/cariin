@@ -7,18 +7,15 @@ import { tokenService } from './token.service.js';
 const googleClient = new OAuth2Client(env.GOOGLE_CLIENT_ID);
 const BCRYPT_ROUNDS = 10;
 
-/**
- * Helper: Eksekusi routing berdasarkan role ecosystem
- * (Sementara hardcoded, nanti bisa diambil dari DomainMapping table)
- */
+// ✅ FIX: Pindahkan hardcoded URLs ke environment variables dengan fallback
 function executeEcosystemRoleRouting(role: string): string {
-  switch (role) {
-    case 'SUPERADMIN': return 'https://admin.cariin.id';
-    case 'MITRA_OWNER': return 'https://mitra.cariin.id';
-    case 'MITRA_STAFF': return 'https://pos.cariin.id';
-    case 'CUSTOMER':
-    default: return 'https://cariin.id';
-  }
+  const roleUrls: Record<string, string> = {
+    'SUPERADMIN': env.SUPERADMIN_URL || 'https://admin.cariin.id',
+    'MITRA_OWNER': env.MITRA_OWNER_URL || 'https://mitra.cariin.id',
+    'MITRA_STAFF': env.MITRA_STAFF_URL || 'https://pos.cariin.id',
+    'CUSTOMER': env.CUSTOMER_URL || 'https://cariin.id',
+  };
+  return roleUrls[role] || roleUrls['CUSTOMER'];
 }
 
 export const authService = {

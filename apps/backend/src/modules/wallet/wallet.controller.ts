@@ -1,6 +1,12 @@
 import type { Context } from 'hono';
 import { walletService } from './wallet.service.js';
 
+// Type extension untuk Hono Context dengan custom variables
+type AppContext = Context & {
+  get(key: 'userId'): string;
+  get(key: 'verifiedBody'): any;
+};
+
 /**
  * Wallet Controller — Route handler tipis, hanya validasi + call service
  * Rule: Controller tidak boleh ada business logic atau DB query
@@ -9,8 +15,8 @@ export const walletController = {
   /**
    * Handle POST /v1/wallet/topup/initiate
    */
-  async initiate(c: Context): Promise<Response> {
-    // ✅ FIX: Cast c.req ke any untuk bypass Hono's strict 'never' type inference
+  async initiate(c: AppContext): Promise<Response> {
+    // ✅ FIX: Gunakan proper typing dengan type extension
     const body = (c.req as any).valid('json');
     const userId = c.get('userId') as string;
     const idempotencyKey = c.req.header('X-Idempotency-Key') ?? crypto.randomUUID();
@@ -26,9 +32,9 @@ export const walletController = {
   /**
    * Handle POST /v1/wallet/topup/confirm
    */
-  async confirm(c: Context): Promise<Response> {
+  async confirm(c: AppContext): Promise<Response> {
     // verifiedBody di-set oleh internalAuthMiddleware setelah HMAC valid
-    const verifiedBody = (c as any).get('verifiedBody');
+    const verifiedBody = c.get('verifiedBody');
     const body = verifiedBody || (c.req as any).valid('json');
 
     const result = await walletService.confirmTopup(body);
@@ -39,7 +45,7 @@ export const walletController = {
   /**
    * Handle GET /v1/wallet/balance
    */
-  async getBalance(c: Context): Promise<Response> {
+  async getBalance(c: AppContext): Promise<Response> {
     const userId = c.get('userId') as string;
 
     // Import langsung di sini untuk hindari circular dependency

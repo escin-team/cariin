@@ -26,6 +26,13 @@ describe("🛒 BUSINESS FLOW: End-to-End User Journey", () => {
   });
 
   afterAll(async () => {
+    // ✅ FIX: Cleanup test data setelah semua test selesai
+    await prismaAuth.refreshToken.deleteMany({});
+    await prismaAuth.otpCode.deleteMany({});
+    await prismaAuth.walletTransaction.deleteMany({});
+    await prismaAuth.wallet.deleteMany({});
+    await prismaAuth.globalUser.deleteMany({ where: { phone: { startsWith: '08' } } });
+    
     await prismaApp.$disconnect();
     await prismaAuth.$disconnect();
   });
