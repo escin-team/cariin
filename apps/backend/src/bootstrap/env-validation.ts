@@ -31,6 +31,14 @@ const envSchema = z.object({
   SENTRY_DSN: z.string().optional(),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.string().default('4000'),
+
+  // Webhook Secrets
+  WEBHOOK_SECRET_XENDIT: z.string().min(1, 'WEBHOOK_SECRET_XENDIT wajib diisi'),
+  WEBHOOK_SECRET_MIDTRANS: z.string().min(1, 'WEBHOOK_SECRET_MIDTRANS wajib diisi'),
+
+  //Google
+  // Pastikan ini ada di dalam skema env kamu
+  GOOGLE_CLIENT_ID: z.string().min(1, 'Google Client ID wajib diisi'),
 });
 
 const parsed = envSchema.safeParse(process.env);

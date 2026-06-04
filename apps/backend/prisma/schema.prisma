@@ -2,69 +2,30 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
-  previewFeatures = ["postgresqlExtensions"] // 1. Tambahkan ini
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-  extensions = [uuidOssp(map: "uuid-ossp")] // 2. Tambahkan ini
+  provider   = "postgresql"
+  url        = env("DATABASE_URL") // Default ke App Pool (cariin_app_role)
+  extensions = [uuidOssp(map: "uuid-ossp")]
 }
 
-/// User global — satu user bisa punya banyak tenant role
-model GlobalUser {
-  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  phone     String   @unique @map("phone")
-  fullName  String   @map("full_name")
-  email     String?  @map("email")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
+// ============================================================
+// ENUMS
+// ============================================================
 
-  wallet              Wallet?
-  walletTransactions   WalletTransaction[]
-
-  @@map("global_users")
+enum SystemRole {
+  SUPERADMIN
+  MITRA_OWNER
+  MITRA_STAFF
+  CUSTOMER
 }
 
-/// Wallet — satu per user, balance dalam BigInt (satuan Rupiah terkecil)
-model Wallet {
-  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  userId    String   @unique @map("user_id") @db.Uuid
-  balance   BigInt   @default(0) @map("balance")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  user         GlobalUser          @relation(fields: [userId], references: [id])
-  transactions WalletTransaction[]
-
-  @@map("wallets")
-}
-
-/// Transaksi wallet — setiap mutasi balance tercatat di sini
-model WalletTransaction {
-  id              String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  walletId        String                @map("wallet_id") @db.Uuid
-  userId          String                @map("user_id") @db.Uuid
-  type            WalletTransactionType @map("type")
-  status          WalletTransactionStatus @default(PENDING) @map("status")
-  amount          BigInt                @map("amount")
-  balanceBefore   BigInt?               @map("balance_before")
-  balanceAfter    BigInt?               @map("balance_after")
-  idempotencyKey  String                @unique @map("idempotency_key")
-  referenceId     String?               @map("reference_id")
-  paymentMethod   String?               @map("payment_method")
-  description     String?               @map("description")
-  createdAt       DateTime              @default(now()) @map("created_at")
-
-  wallet Wallet     @relation(fields: [walletId], references: [id])
-  user   GlobalUser @relation(fields: [userId], references: [id])
-
-  @@index([walletId, createdAt])
-  @@index([userId, type])
-  @@index([idempotencyKey])
-  @@map("wallet_transactions")
+enum OAuthProvider {
+  GOOGLE
+  APPLE
 }
 
 enum WalletTransactionType {
@@ -83,4 +44,139 @@ enum WalletTransactionStatus {
   FAILED
 
   @@map("wallet_transaction_status")
+}
+
+enum OtpPurpose {
+  LOGIN
+  REGISTER
+  TRANSACTION
+  RESET_PASSWORD
+
+  @@map("otp_purpose")
+}
+
+// ============================================================
+// AUTH MODELS (prismaAuth - BYPASSRLS)
+// ============================================================
+
+/// OTP Codes — Disimpan sebagai Bcrypt Hash. (AUTH MODEL)
+model OtpCode {
+  id           String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId       String     @map("user_id") @db.Uuid
+  purpose      OtpPurpose
+  codeHash     String     @map("code_hash") @db.VarChar(255) // Bcrypt hash
+  attemptCount Int        @default(0) @map("attempt_count")
+  isUsed       Boolean    @default(false) @map("is_used")
+  expiresAt    DateTime   @map("expires_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  @@index([userId, purpose, isUsed])
+  @@map("otp_codes")
+}
+
+/// Refresh Tokens — Family-based rotation untuk deteksi token reuse. (AUTH MODEL)
+model RefreshToken {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tokenHash  String   @unique @map("token_hash") // Opaque string / hash
+  family     String   @map("family")             // Untuk revoke seluruh device jika ada reuse
+  userId     String   @map("user_id") @db.Uuid
+  tenantId   String?  @map("tenant_id") @db.Uuid
+  role       String
+  isRevoked  Boolean  @default(false) @map("is_revoked")
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([family])
+  @@index([userId, isRevoked])
+  @@map("refresh_tokens")
+}
+
+// ============================================================
+// BUSINESS MODELS (prismaApp - RLS ENFORCED)
+// ============================================================
+
+/// User global — satu user bisa punya banyak tenant role (USER_SCOPED)
+model GlobalUser {
+  id              String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  phone           String         @unique @map("phone")
+  fullName        String         @map("full_name")
+  email           String?        @unique @map("email")
+  
+  // --- AUTHENTICATION & OAUTH ---
+  passwordHash    String?        @map("password_hash") @db.VarChar(255)
+  role            SystemRole     @default(CUSTOMER)
+  isEmailVerified Boolean        @default(false) @map("is_email_verified")
+  isOauth         Boolean        @default(false) @map("is_oauth")
+  oauthProvider   OAuthProvider? @map("oauth_provider")
+  oauthProviderId String?        @map("oauth_provider_id") @db.VarChar(255)
+  // ------------------------------
+
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  deletedAt       DateTime?      @map("deleted_at") // Soft delete berlaku untuk User
+
+  wallet             Wallet?
+  walletTransactions WalletTransaction[]
+
+  @@map("global_users")
+}
+
+/// Wallet — satu per user, balance dalam BigInt (USER_SCOPED)
+model Wallet {
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId    String   @unique @map("user_id") @db.Uuid
+  balance   BigInt   @default(0) @map("balance")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  // TIDAK ADA deletedAt karena ini entitas finansial (tidak bisa dihapus)
+
+  user         GlobalUser          @relation(fields: [userId], references: [id])
+  transactions WalletTransaction[]
+
+  @@map("wallets")
+}
+
+/// Transaksi wallet — IMMUTABLE LEDGER (USER_SCOPED)
+model WalletTransaction {
+  id              String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  walletId        String                  @map("wallet_id") @db.Uuid
+  userId          String                  @map("user_id") @db.Uuid
+  type            WalletTransactionType   @map("type")
+  status          WalletTransactionStatus @default(PENDING) @map("status")
+  amount          BigInt                  @map("amount")
+  balanceBefore   BigInt?                 @map("balance_before")
+  balanceAfter    BigInt?                 @map("balance_after")
+  idempotencyKey  String                  @unique @map("idempotency_key")
+  referenceId     String?                 @map("reference_id")
+  paymentMethod   String?                 @map("payment_method")
+  description     String?                 @map("description")
+  createdAt       DateTime                @default(now()) @map("created_at")
+  // TIDAK ADA deletedAt & updatedAt — Ledger tidak boleh diubah/dihapus (Immutable)
+
+  wallet Wallet     @relation(fields: [walletId], references: [id])
+  user   GlobalUser @relation(fields: [userId], references: [id])
+
+  @@index([walletId, createdAt])
+  @@index([userId, type])
+  @@map("wallet_transactions")
+}
+
+// ============================================================
+// AUDIT MODELS
+// ============================================================
+
+/// Log aktivitas sistem keamanan (AUTH MODEL)
+model AuditLog {
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  action    String
+  payload   Json?
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, action])
+  @@index([createdAt])
+  @@map("audit_logs")
 }
