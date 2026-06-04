@@ -4,26 +4,17 @@ import { secureHeaders } from 'hono/secure-headers';
 import { logger } from 'hono/logger';
 import { walletRouter } from '../modules/wallet/wallet.router.js';
 import { env } from './env-validation.js';
+import { globalErrorHandler } from '../middleware/error-handler.js';
+import '../middleware/sentry.js'; // Side-effect: initializes Sentry
 
 /**
  * Application Bootstrap
  *
  * Rule [API-1]: CORS WAJIB PERTAMA di middleware chain
  * Urutan: CORS → Security Headers → Logger → Routes → Error Handler
+ *
+ * Sentry diinisialisasi via side-effect import '../middleware/sentry.js'
  */
-
-/**
- * Stub Sentry Init
- * Inisialisasi Sentry pertama kali sebelum apapun (Rule C2)
- */
-export function initSentry() {
-  if (env.SENTRY_DSN) {
-    // Sentry.init({ dsn: env.SENTRY_DSN, ... })
-    // console.log('Sentry initialized');
-  }
-}
-
-initSentry(); // ← PERTAMA, sebelum apapun
 
 const app = new Hono();
 
@@ -95,97 +86,7 @@ app.notFound((c) => {
   );
 });
 
-// ===== 8. Global Error Handler =====
-// ❌ DILARANG: expose stack trace di production
-app.onError((err, c) => {
-  // Standardized error codes mapping
-  const errorMap: Record<string, { status: number; message: string }> = {
-    WALLET_NOT_FOUND: {
-      status: 404,
-      message: 'Wallet tidak ditemukan. Pastikan akun Anda sudah memiliki wallet.',
-    },
-    WALLET_UPDATE_FAILED: {
-      status: 500,
-      message: 'Gagal memperbarui saldo wallet. Silakan coba lagi.',
-    },
-    WALLET_MAX_BALANCE_EXCEEDED: {
-      status: 400,
-      message: 'Saldo melebihi batas maksimal wallet.',
-    },
-    STOCK_INSUFFICIENT: {
-      status: 400,
-      message: 'Stok tidak mencukupi.',
-    },
-    DUPLICATE_ORDER: {
-      status: 409,
-      message: 'Pesanan sudah pernah dibuat.',
-    },
-    RATE_LIMIT_EXCEEDED: {
-      status: 429,
-      message: 'Terlalu banyak permintaan. Silakan coba lagi nanti.',
-    },
-  };
-
-  const errorCode = err.message;
-  const mapped = errorMap[errorCode];
-
-  if (mapped) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: errorCode,
-          message: mapped.message,
-        },
-      },
-      mapped.status as 400 | 404 | 409 | 429 | 500
-    );
-  }
-
-  // Prisma known errors
-  if (err.message.includes('P2002')) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: 'DUPLICATE_ENTRY',
-          message: 'Data duplikat terdeteksi.',
-        },
-      },
-      409
-    );
-  }
-
-  if (err.message.includes('P2025')) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: 'NOT_FOUND',
-          message: 'Data tidak ditemukan.',
-        },
-      },
-      404
-    );
-  }
-
-  // Generic error — hide details in production
-  console.error('[UNHANDLED ERROR]', err);
-
-  return c.json(
-    {
-      success: false,
-      error: {
-        code: 'INTERNAL_SERVER_ERROR',
-        message:
-          env.NODE_ENV === 'development'
-            ? err.message
-            : 'Terjadi kesalahan internal. Silakan coba lagi.',
-        ...(env.NODE_ENV === 'development' && { stack: err.stack }),
-      },
-    },
-    500
-  );
-});
+// ===== 8. Global Error Handler (dari error-handler.ts) =====
+app.onError(globalErrorHandler);
 
 export { app };

@@ -41,7 +41,7 @@ walletRouter.post(
 // 2. Endpoint Internal Webhook: Confirm Topup
 walletRouter.post(
   '/topup/confirm',
-  internalAuthMiddleware,
+  internalAuthMiddleware('INTERNAL'),
   // Rate limit untuk internal auth bisa menggunakan IP fallback
   rateLimiter('wallet:topup', 'ip'),
   zValidator('json', ConfirmTopupSchema, zodErrorFormatter),

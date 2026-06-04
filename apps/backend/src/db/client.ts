@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { env } from '../bootstrap/env-validation';
+import { env } from '../bootstrap/env-validation.js';
 
 const prismaBase = new PrismaClient({
   datasourceUrl: env.DATABASE_URL,
@@ -14,9 +14,25 @@ const prismaAuthBase = new PrismaClient({
 
 const txStorage = new AsyncLocalStorage<any>();
 
-// Proxy agar prismaApp otomatis menggunakan transaction context dari withRlsContext
+/**
+ * Proxy untuk prismaApp
+ * Jika sedang dalam withRlsContext, otomatis redirect ke transaction client.
+ * MEMBLOKIR akses $transaction untuk mencegah nested transaction yang keluar dari RLS context.
+ */
 export const prismaApp = new Proxy(prismaBase, {
   get(target, prop) {
+    // 🚨 BLOKIR: Jangan izinkan nested $transaction di dalam withRlsContext
+    if (prop === '$transaction') {
+      const tx = txStorage.getStore();
+      if (tx) {
+        throw new Error(
+          'DILARANG memanggil prismaApp.$transaction() di dalam withRlsContext. ' +
+          'Anda sudah berada dalam transaksi. Gunakan prismaApp langsung.'
+        );
+      }
+      return target.$transaction.bind(target);
+    }
+
     const tx = txStorage.getStore();
     if (tx && prop in tx) {
       return tx[prop];
@@ -32,6 +48,10 @@ interface RlsContext {
   tenantId?: string;
 }
 
+/**
+ * Membungkus eksekusi dengan RLS Context.
+ * Otomatis memulai transaksi dan meng-inject userId/tenantId ke PostgreSQL session.
+ */
 export async function withRlsContext<T>(context: RlsContext, fn: () => Promise<T>): Promise<T> {
   return prismaBase.$transaction(async (tx) => {
     if (context.userId) {
@@ -42,4 +62,14 @@ export async function withRlsContext<T>(context: RlsContext, fn: () => Promise<T
     }
     return txStorage.run(tx, fn);
   });
+}
+
+/**
+ * Disconnect semua Prisma client — dipanggil saat graceful shutdown.
+ */
+export async function disconnectAll(): Promise<void> {
+  await Promise.all([
+    prismaBase.$disconnect(),
+    prismaAuthBase.$disconnect(),
+  ]);
 }

@@ -26,11 +26,11 @@ export const verifyWebhook = (provider: 'XENDIT' | 'MIDTRANS' | 'INTERNAL') => {
 
     const rawBody = await c.req.text();
     
-    // Pilih secret berdasarkan provider
+    // Pilih secret berdasarkan provider (Disesuaikan dengan env-validation.ts Anda)
     let secretKey = '';
     if (provider === 'XENDIT') secretKey = env.WEBHOOK_SECRET_XENDIT;
     else if (provider === 'MIDTRANS') secretKey = env.WEBHOOK_SECRET_MIDTRANS;
-    else secretKey = env.WEBHOOK_SECRET_INTERNAL;
+    else secretKey = env.INTERNAL_SECRET_KEY; // ✅ FIX: Sesuai env-validation.ts
     
     // Lapisan 3: HMAC constant-time compare
     const expected = createHmac('sha256', secretKey)
@@ -45,3 +45,7 @@ export const verifyWebhook = (provider: 'XENDIT' | 'MIDTRANS' | 'INTERNAL') => {
     await next();
   };
 };
+
+// 👇 TAMBAHAN: Alias backward-compatibility 
+// Agar router yang mengimport `internalAuthMiddleware` tidak error
+export const internalAuthMiddleware = verifyWebhook;
