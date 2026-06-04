@@ -2,10 +2,6 @@ import { z } from 'zod';
 
 /**
  * Schema untuk inisiasi topup (User request topup ke server)
- * Regex ^[1-9]\d*$ memastikan:
- * 1. Hanya angka (menolak "seratus ribu")
- * 2. Tidak ada koma/titik (menolak "100.000")
- * 3. Harus lebih dari 0 (menolak "0" atau "000")
  */
 export const InitiateTopupSchema = z.object({
   amount: z

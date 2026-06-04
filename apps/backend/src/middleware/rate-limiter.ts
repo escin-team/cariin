@@ -2,24 +2,24 @@ import type { Context, Next } from 'hono';
 
 /**
  * Rate Limiter Middleware — Rule [API-3] Fallback Chain IP
- *
  * Production: Redis Lua atomic counter
  * Stub: In-memory Map (untuk development)
- *
+ * 
  * IP detection fallback chain:
- *   CF-Connecting-IP → X-Forwarded-For → X-Real-IP → 'unknown'
- *
+ * CF-Connecting-IP → X-Forwarded-For → X-Real-IP → 'unknown'
  * ❌ DILARANG: hanya CF header tanpa fallback — crash di dev/staging
  */
 
-// Rate limit config — dari blueprint
+// Rate limit config — dari blueprint + tambahan wallet:balance
 const RATE_LIMITS: Record<string, { windowMs: number; max: number }> = {
   'auth:login':          { windowMs: 15 * 60_000, max: 10 },
   'auth:register':       { windowMs: 60 * 60_000, max: 5 },
   'auth:otp-request':    { windowMs: 60_000,       max: 3 },
   'auth:otp-verify':     { windowMs: 15 * 60_000, max: 5 },
+  'auth:refresh':        { windowMs: 60_000,       max: 30 }, // ✅ Tambahan untuk refresh token
   'orders:create':       { windowMs: 60_000,       max: 10 },
   'wallet:topup':        { windowMs: 60 * 60_000, max: 20 },
+  'wallet:balance':      { windowMs: 60_000,       max: 60 }, // ✅ FIX: 60x per menit (cukup longgar untuk cek saldo)
   'feature-flags:fetch': { windowMs: 60_000,       max: 60 },
 };
 
@@ -28,7 +28,6 @@ interface RateLimitEntry {
   count: number;
   resetAt: number;
 }
-
 const store = new Map<string, RateLimitEntry>();
 
 /**
@@ -53,6 +52,7 @@ export function rateLimiter(
   identifierType: 'ip' | 'userId' = 'userId'
 ): (c: Context, next: Next) => Promise<Response | void> {
   const config = RATE_LIMITS[limitKey];
+
   if (!config) {
     throw new Error(`Rate limit config not found for key: ${limitKey}`);
   }

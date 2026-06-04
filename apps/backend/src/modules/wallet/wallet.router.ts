@@ -29,7 +29,15 @@ const zodErrorFormatter = (result: any, c: any) => {
   return;
 };
 
-// 1. Endpoint User-Facing: Initiate Topup
+// ✅ ENDPOINT CEK SALDO — menggunakan walletController.getBalance
+walletRouter.get(
+  '/balance',
+  authMiddleware,
+  rateLimiter('wallet:balance', 'userId'),
+  walletController.getBalance
+);
+
+// ENDPOINT: Initiate Topup (User-facing)
 walletRouter.post(
   '/topup/initiate',
   authMiddleware,
@@ -38,11 +46,10 @@ walletRouter.post(
   walletController.initiate
 );
 
-// 2. Endpoint Internal Webhook: Confirm Topup
+// ENDPOINT: Confirm Topup (Internal Webhook)
 walletRouter.post(
   '/topup/confirm',
   internalAuthMiddleware('INTERNAL'),
-  // Rate limit untuk internal auth bisa menggunakan IP fallback
   rateLimiter('wallet:topup', 'ip'),
   zValidator('json', ConfirmTopupSchema, zodErrorFormatter),
   walletController.confirm

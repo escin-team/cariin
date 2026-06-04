@@ -42,7 +42,7 @@ export const verifyWebhook = (provider: 'XENDIT' | 'MIDTRANS' | 'INTERNAL') => {
     }
 
     c.set('verifiedBody', JSON.parse(rawBody));
-    await next();
+    return await next();
   };
 };
 
