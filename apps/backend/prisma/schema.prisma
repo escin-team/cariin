@@ -12,18 +12,66 @@ datasource db {
   extensions = [uuidOssp(map: "uuid-ossp")] // 2. Tambahkan ini
 }
 
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum SystemRole {
+  SUPERADMIN
+  MITRA_OWNER
+  MITRA_STAFF
+  CUSTOMER
+}
+
+enum OAuthProvider {
+  GOOGLE
+  APPLE
+}
+
+enum WalletTransactionType {
+  TOPUP
+  PAYMENT
+  REFUND
+  WITHDRAWAL
+  ADJUSTMENT
+
+  @@map("wallet_transaction_type")
+}
+
+enum WalletTransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+
+  @@map("wallet_transaction_status")
+}
+
+// ============================================================
+// MODELS
+// ============================================================
+
 /// User global — satu user bisa punya banyak tenant role
 model GlobalUser {
-  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  phone     String   @unique @map("phone")
-  fullName  String   @map("full_name")
-  email     String?  @map("email")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
+  id              String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  phone           String         @unique @map("phone")
+  fullName        String         @map("full_name")
+  email           String?        @map("email")
+  
+  // --- PENAMBAHAN FIELD AUTHENTICATION & OAUTH ---
+  passwordHash    String?        @map("password_hash") @db.VarChar(255)
+  role            SystemRole     @default(CUSTOMER)
+  isEmailVerified Boolean        @default(false) @map("is_email_verified")
+  isOauth         Boolean        @default(false) @map("is_oauth")
+  oauthProvider   OAuthProvider? @map("oauth_provider")
+  oauthProviderId String?        @map("oauth_provider_id") @db.VarChar(255)
+  // -----------------------------------------------
 
-  wallet              Wallet?
-  walletTransactions   WalletTransaction[]
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  deletedAt       DateTime?      @map("deleted_at")
+
+  wallet             Wallet?
+  walletTransactions WalletTransaction[]
 
   @@map("global_users")
 }
@@ -44,19 +92,19 @@ model Wallet {
 
 /// Transaksi wallet — setiap mutasi balance tercatat di sini
 model WalletTransaction {
-  id              String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  walletId        String                @map("wallet_id") @db.Uuid
-  userId          String                @map("user_id") @db.Uuid
-  type            WalletTransactionType @map("type")
+  id              String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  walletId        String                  @map("wallet_id") @db.Uuid
+  userId          String                  @map("user_id") @db.Uuid
+  type            WalletTransactionType   @map("type")
   status          WalletTransactionStatus @default(PENDING) @map("status")
-  amount          BigInt                @map("amount")
-  balanceBefore   BigInt?               @map("balance_before")
-  balanceAfter    BigInt?               @map("balance_after")
-  idempotencyKey  String                @unique @map("idempotency_key")
-  referenceId     String?               @map("reference_id")
-  paymentMethod   String?               @map("payment_method")
-  description     String?               @map("description")
-  createdAt       DateTime              @default(now()) @map("created_at")
+  amount          BigInt                  @map("amount")
+  balanceBefore   BigInt?                 @map("balance_before")
+  balanceAfter    BigInt?                 @map("balance_after")
+  idempotencyKey  String                  @unique @map("idempotency_key")
+  referenceId     String?                 @map("reference_id")
+  paymentMethod   String?                 @map("payment_method")
+  description     String?                 @map("description")
+  createdAt       DateTime                @default(now()) @map("created_at")
 
   wallet Wallet     @relation(fields: [walletId], references: [id])
   user   GlobalUser @relation(fields: [userId], references: [id])
@@ -65,22 +113,4 @@ model WalletTransaction {
   @@index([userId, type])
   @@index([idempotencyKey])
   @@map("wallet_transactions")
-}
-
-enum WalletTransactionType {
-  TOPUP
-  PAYMENT
-  REFUND
-  WITHDRAWAL
-  ADJUSTMENT
-
-  @@map("wallet_transaction_type")
-}
-
-enum WalletTransactionStatus {
-  PENDING
-  COMPLETED
-  FAILED
-
-  @@map("wallet_transaction_status")
 }

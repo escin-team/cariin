@@ -1,5 +1,6 @@
 node_modules/
 dist/
+plan/
 .env
 .DS_Store
 coverage/

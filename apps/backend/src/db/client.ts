@@ -1,60 +1,45 @@
 import { PrismaClient } from '@prisma/client';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { env } from '../bootstrap/env-validation';
 
-/**
- * Dual Pool Prisma Client — Rule [DB-1]
- *
- * prismaApp  → operasi bisnis (Wallet, Order, dll) — terkena RLS
- * prismaAuth → operasi auth (OTP, RefreshToken) — BYPASSRLS
- *
- * JANGAN pakai prismaApp untuk query OTP/RefreshToken
- * JANGAN pakai prismaAuth untuk query bisnis
- */
-
-// Pool bisnis — terkena RLS enforcement
-export const prismaApp = new PrismaClient({
-  datasourceUrl: process.env.DATABASE_URL,
-  log: process.env.NODE_ENV === 'development' ? ['query', 'warn', 'error'] : ['error'],
+const prismaBase = new PrismaClient({
+  datasourceUrl: env.DATABASE_URL,
+  log: env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
 });
 
-// Pool auth — BYPASSRLS untuk OTP dan RefreshToken
-export const prismaAuth = new PrismaClient({
-  datasourceUrl: process.env.DATABASE_URL_AUTH,
-  log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
+const prismaAuthBase = new PrismaClient({
+  datasourceUrl: env.DATABASE_URL_AUTH,
+  log: env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
 });
 
-/**
- * RLS Context wrapper — Rule [DB-2]
- *
- * Wajib dipakai sebelum query model USER_SCOPED atau TENANT_SCOPED:
- * - USER_SCOPED:   GlobalUser, Wallet, WalletTransaction, GlobalUserRole
- * - TENANT_SCOPED: PayrollBatch, PayrollItem
- *
- * CONTEXT_FREE (tidak perlu wrapper): Tenant, TenantRoleRoute, DomainMapping, AuditLog, WebhookLog
- */
+const txStorage = new AsyncLocalStorage<any>();
+
+// Proxy agar prismaApp otomatis menggunakan transaction context dari withRlsContext
+export const prismaApp = new Proxy(prismaBase, {
+  get(target, prop) {
+    const tx = txStorage.getStore();
+    if (tx && prop in tx) {
+      return tx[prop];
+    }
+    return target[prop as keyof PrismaClient];
+  },
+}) as PrismaClient;
+
+export const prismaAuth = prismaAuthBase;
+
 interface RlsContext {
   userId?: string;
   tenantId?: string;
 }
 
-export async function setRlsContext(
-  tx: any, // Menggunakan any atau Prisma.TransactionClient jika di-import
-  context: RlsContext
-): Promise<void> {
-  // Set RLS variables via parameterized query — Rule [DB-3]: TIDAK BOLEH $executeRawUnsafe
-  if (context.userId) {
-    await tx.$executeRaw`SELECT set_config('app.current_user_id', ${context.userId}, true)`;
-  }
-  if (context.tenantId) {
-    await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${context.tenantId}, true)`;
-  }
-}
-
-/**
- * Graceful shutdown — cleanup connections
- */
-export async function disconnectAll(): Promise<void> {
-  await Promise.all([
-    prismaApp.$disconnect(),
-    prismaAuth.$disconnect(),
-  ]);
+export async function withRlsContext<T>(context: RlsContext, fn: () => Promise<T>): Promise<T> {
+  return prismaBase.$transaction(async (tx) => {
+    if (context.userId) {
+      await tx.$executeRaw`SELECT set_config('app.current_user_id', ${context.userId}, true)`;
+    }
+    if (context.tenantId) {
+      await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${context.tenantId}, true)`;
+    }
+    return txStorage.run(tx, fn);
+  });
 }
