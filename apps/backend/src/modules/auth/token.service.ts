@@ -6,26 +6,37 @@ import { env } from '../../bootstrap/env-validation.js';
 const ACCESS_TOKEN_TTL = '15m';
 const REFRESH_TOKEN_TTL_DAYS = 30;
 
-// Helper untuk hash token sebelum disimpan ke DB (Best Practice Security)
+// Helper: Hash token sebelum disimpan ke DB (Best Practice Security)
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
 export const tokenService = {
-  async generateTokenPair(userId: string, tenantId: string | null, role: string, existingFamilyId?: string) {
+  /**
+   * Generate Access Token (JWT RS256) + Refresh Token (Opaque String)
+   * @param existingFamilyId - diteruskan saat rotate agar family chain tidak putus
+   */
+  async generateTokenPair(
+    userId: string,
+    tenantId: string | null,
+    role: string,
+    existingFamilyId?: string
+  ) {
     const familyId = existingFamilyId || randomBytes(16).toString('hex');
     const jti = randomBytes(16).toString('hex');
 
+    // Access Token: pendek, stateless, RS256 (Aturan AUTH-2)
     const accessToken = sign(
       { sub: userId, tenantId, role, jti },
       env.JWT_PRIVATE_KEY,
       { algorithm: 'RS256', expiresIn: ACCESS_TOKEN_TTL }
     );
 
+    // Refresh Token: opaque string, disimpan di DB sebagai hash
     const refreshTokenPlain = randomBytes(48).toString('base64url');
     const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
 
     await prismaAuth.refreshToken.create({
       data: {
-        tokenHash: hashToken(refreshTokenPlain), // ✅ Disimpan sebagai SHA-256 Hash
+        tokenHash: hashToken(refreshTokenPlain),
         family: familyId,
         userId,
         tenantId,
@@ -38,9 +49,13 @@ export const tokenService = {
     return { accessToken, refreshToken: refreshTokenPlain };
   },
 
+  /**
+   * Refresh Token Rotation (Aturan AUTH-4)
+   * Otomatis mendeteksi REUSE ATTACK dan membakar seluruh family jika token dicuri
+   */
   async rotate(incomingRefreshToken: string) {
     const incomingHash = hashToken(incomingRefreshToken);
-    
+
     const stored = await prismaAuth.refreshToken.findFirst({
       where: { tokenHash: incomingHash },
     });
@@ -48,7 +63,8 @@ export const tokenService = {
     if (!stored) throw new Error('TOKEN_INVALID');
 
     if (stored.isRevoked) {
-      // 🚨 REUSE DETECTED! Bakar seluruh family
+      // 🚨 REUSE DETECTED! Token ini sudah di-rotate tapi dipakai lagi.
+      // Artinya token ini dicuri. Revoke seluruh family untuk paksa logout semua device.
       await prismaAuth.refreshToken.updateMany({
         where: { family: stored.family },
         data: { isRevoked: true },
@@ -64,10 +80,24 @@ export const tokenService = {
       data: { isRevoked: true },
     });
 
-    // Teruskan familyId agar token baru masih dalam 1 family yang sama
+    // Generate pair baru dengan family yang sama (chain tidak terputus)
     return this.generateTokenPair(stored.userId, stored.tenantId, stored.role, stored.family);
   },
 
+  /**
+   * Logout spesifik — revoke token yang sedang aktif (dari cookie)
+   */
+  async revokeToken(incomingRefreshToken: string) {
+    const incomingHash = hashToken(incomingRefreshToken);
+    await prismaAuth.refreshToken.updateMany({
+      where: { tokenHash: incomingHash },
+      data: { isRevoked: true },
+    });
+  },
+
+  /**
+   * Logout semua device — revoke seluruh token aktif milik user
+   */
   async revokeAll(userId: string) {
     await prismaAuth.refreshToken.updateMany({
       where: { userId, isRevoked: false },
@@ -75,6 +105,9 @@ export const tokenService = {
     });
   },
 
+  /**
+   * Cleanup job — dipanggil via BullMQ cron setiap hari
+   */
   async deleteExpiredTokens() {
     const result = await prismaAuth.refreshToken.deleteMany({
       where: {
@@ -87,6 +120,9 @@ export const tokenService = {
     return { deletedCount: result.count };
   },
 
+  /**
+   * Verifikasi Access Token (dipanggil di authMiddleware)
+   */
   verifyAccessToken(token: string) {
     try {
       return verify(token, env.JWT_PUBLIC_KEY, { algorithms: ['RS256'] }) as {

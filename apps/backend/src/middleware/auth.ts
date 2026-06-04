@@ -1,35 +1,33 @@
 import type { Context, Next } from 'hono';
 import { getCookie } from 'hono/cookie';
-import jwt from 'jsonwebtoken';
-import { env } from '../bootstrap/env-validation.js'; // Sesuaikan path jika berbeda
+import { tokenService } from '../modules/auth/token.service.js';
 
 /**
- * Auth Middleware — Rule [AUTH-2] JWT RS256
- *
- * Verifikasi JWT dari HttpOnly cookie (bukan localStorage — Rule [AUTH-3])
- * Extract userId, tenantId, role ke Hono context
+ * Extend Hono ContextVariableMap untuk type safety
+ * Rule: Semua context variable harus di-declare di sini
  */
-
-// Extend Hono context variables
 declare module 'hono' {
   interface ContextVariableMap {
     userId: string;
-    tenantId: string;
+    tenantId: string | null;
     role: string;
   }
 }
 
 /**
- * Note: authMiddleware saat ini belum meng-inject session user ke database.
- * Middleware tidak meng-inject context ke global connection,
- * melainkan RLS akan diaplikasikan di layer service/repository per transaksi menggunakan setRlsContext(tx, { userId }).
+ * Auth Middleware — Rule [AUTH-2] JWT RS256
+ * Verifikasi JWT dari HttpOnly cookie ATAU Authorization header
+ * Extract userId, tenantId, role ke Hono context
+ * 
+ * Note: RLS context di-set di layer service via withRlsContext(),
+ * bukan di middleware. Ini untuk hindari connection pool issue dengan pgBouncer.
  */
 export async function authMiddleware(c: Context, next: Next): Promise<Response | void> {
-  const sessionToken = getCookie(c, 'session_token');
-
-  // Juga support Authorization header untuk development/testing
-  const authHeader = c.req.header('Authorization');
-  const token = sessionToken || authHeader?.replace('Bearer ', '');
+  // 1. Ambil token dari Header Authorization ATAU Cookie
+  let token = c.req.header('Authorization')?.replace('Bearer ', '');
+  if (!token) {
+    token = getCookie(c, 'session_token');
+  }
 
   if (!token) {
     return c.json(
@@ -45,14 +43,8 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
   }
 
   try {
-    // 1. Ambil Public Key dan pastikan format baris baru (\n) dibaca dengan benar
-    const publicKey = env.JWT_PUBLIC_KEY.replace(/\\n/g, '\n');
-
-    // 2. Verifikasi KRIPTOGRAFIS menggunakan algoritma RS256
-    // Ini akan otomatis melempar error jika token dimanipulasi atau expired
-    const payload = jwt.verify(token, publicKey, {
-      algorithms: ['RS256'],
-    }) as jwt.JwtPayload;
+    // 2. Verifikasi JWT menggunakan tokenService (konsisten dengan generateTokenPair)
+    const payload = tokenService.verifyAccessToken(token);
 
     if (!payload || !payload.sub) {
       return c.json(
@@ -68,34 +60,26 @@ export async function authMiddleware(c: Context, next: Next): Promise<Response |
     }
 
     // 3. Inject ke Hono context
-    c.set('userId', payload.sub as string);
-    c.set('tenantId', (payload.tenantId as string) ?? '');
-    c.set('role', (payload.role as string) ?? 'user');
+    c.set('userId', payload.sub);
+    c.set('tenantId', payload.tenantId ?? null);
+    c.set('role', payload.role);
 
     await next();
-  } catch (error) {
-    // Memisahkan error kedaluwarsa dari error validasi lainnya
-    if (error instanceof jwt.TokenExpiredError) {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: 'TOKEN_EXPIRED',
-            message: 'Sesi telah berakhir. Silakan refresh token.',
-          },
-        },
-        401
-      );
-    }
+  } catch (error: any) {
+    // Error dari tokenService.verifyAccessToken sudah dalam format standar:
+    // - 'TOKEN_EXPIRED'
+    // - 'TOKEN_INVALID'
+    const errorCode = error.message || 'TOKEN_INVALID';
 
-    // Error lain seperti JsonWebTokenError (signature gagal verifikasi)
-    console.error('[AUTH ERROR]', error);
     return c.json(
       {
         success: false,
         error: {
-          code: 'TOKEN_INVALID',
-          message: 'Token tidak valid atau tidak dapat diproses.',
+          code: errorCode,
+          message:
+            errorCode === 'TOKEN_EXPIRED'
+              ? 'Sesi telah berakhir. Silakan refresh token.'
+              : 'Token tidak valid atau tidak dapat diproses.',
         },
       },
       401
