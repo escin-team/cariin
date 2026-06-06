@@ -27,6 +27,56 @@ yarn.lock
 pnpm-lock.yaml
 !apps/**/pnpm-lock.yaml # Jika lockfile ada di subfolder, sesuaikan jika perlu
 
+# Environment variables
+.env
+.env.local
+*.env.*
+
+# Logs
+*.log
+
+# Build outputs
+dist/
+build/
+target/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.ENV
+.python-version
+
+# Compressed files
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
+
+# IDE and editor files
 # ==========================================
 # BUILD OUTPUTS
 # ==========================================
@@ -70,6 +120,9 @@ appendonly.aof
 .idea/
 *.swp
 *.swo
+*.tmp
+
+# System files
 *~
 .project
 .classpath
@@ -98,6 +151,20 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Testing and coverage
+coverage/
+htmlcov/
+.coverage
+.mypy_cache/
+.pytest_cache/
+
+# Gradle
+.gradle/
+
+# Temporary files
+*.tmp
+*.temp
+```
 *.tmp
 *.temp
 .cache/
