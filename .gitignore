@@ -1,27 +1,4 @@
 ```
 # Dependencies
 node_modules/
-.pnpm-store/
-.yarn/
-yarn.lock
-pnpm-lock.yaml
-
-# Build outputs
-dist/
-build/
-.next/
-out/
-
-# Development
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Logs
-*.log
-
-# Coverage
-coverage/
-.nyc_output/
 ```
