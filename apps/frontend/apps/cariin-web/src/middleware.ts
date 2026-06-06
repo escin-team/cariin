@@ -3,14 +3,15 @@ import { NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 
 export function middleware(request: NextRequest) {
-  const nonce = randomBytes(16).toString('base64');
-
+  // Gunakan Web Crypto API bawaan (tidak perlu di-import)
+  const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
+  
   const csp = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' https://challenges.cloudflare.com`,
     `style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com`,
     "font-src 'self' https://fonts.gstatic.com",
-    `img-src 'self' data: https://*.r2.cloudflarestorage.com https://pub-*.r2.dev https://lh3.googleusercontent.com`,
+    `img-src 'self'  https://*.r2.cloudflarestorage.com https://pub-*.r2.dev https://lh3.googleusercontent.com`,
     `connect-src 'self' ${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'} wss://${new URL(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').host}`,
     "frame-src https://challenges.cloudflare.com",
     "object-src 'none'",
