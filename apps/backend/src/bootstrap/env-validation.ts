@@ -39,6 +39,9 @@ const envSchema = z.object({
   //Google
   // Pastikan ini ada di dalam skema env kamu
   GOOGLE_CLIENT_ID: z.string().min(1, 'Google Client ID wajib diisi'),
+  GOOGLE_CLIENT_SECRET: z.string().min(1, 'Google Client Secret wajib diisi'),
+  GOOGLE_REDIRECT_URI: z.string().url('Google Redirect URI harus berupa URL yang valid'),
+  FRONTEND_URL: z.string().url('Frontend URL harus berupa URL yang valid'),
 
   // Role-based redirect URLs (optional dengan fallback)
   SUPERADMIN_URL: z.string().url().optional(),

@@ -8,7 +8,8 @@ const googleClient = new OAuth2Client(env.GOOGLE_CLIENT_ID);
 const BCRYPT_ROUNDS = 10;
 
 // ✅ FIX: Pindahkan hardcoded URLs ke environment variables dengan fallback
-function executeEcosystemRoleRouting(role: string): string {
+// Export fungsi helper agar bisa digunakan di auth.router.ts
+export function executeEcosystemRoleRouting(role: string): string {
   const roleUrls: Record<string, string> = {
     'SUPERADMIN': env.SUPERADMIN_URL || 'https://admin.cariin.id',
     'MITRA_OWNER': env.MITRA_OWNER_URL || 'https://mitra.cariin.id',

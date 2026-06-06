@@ -23,3 +23,31 @@ export const RegisterSchema = z.object({
     .regex(/[A-Z]/, 'Password harus mengandung minimal 1 huruf kapital')
     .regex(/[0-9]/, 'Password harus mengandung minimal 1 angka'),
 });
+
+// Schema untuk request OTP (login/register/forgot-password)
+export const RequestOtpSchema = z.object({
+  email: z.string().email('Email tidak valid'),
+});
+
+// Schema untuk verifikasi OTP
+export const VerifyOtpSchema = z.object({
+  email: z.string().email('Email tidak valid'),
+  otp: z.string().length(6, 'OTP harus 6 digit').regex(/^\d{6}$/, 'Hanya angka'),
+});
+
+// Schema untuk forgot password
+export const ForgotPasswordSchema = z.object({
+  email: z.string().email('Email tidak valid'),
+});
+
+// Schema untuk reset password
+export const ResetPasswordSchema = z.object({
+  email: z.string().email('Email tidak valid'),
+  otp: z.string().length(6, 'OTP harus 6 digit').regex(/^\d{6}$/, 'Hanya angka'),
+  newPassword: z
+    .string()
+    .min(8, 'Password minimal 8 karakter')
+    .max(100)
+    .regex(/[A-Z]/, 'Password harus mengandung minimal 1 huruf kapital')
+    .regex(/[0-9]/, 'Password harus mengandung minimal 1 angka'),
+});
