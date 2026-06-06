@@ -95,18 +95,16 @@ export const authService = {
       throw new Error('UNAUTHORIZED_CREDENTIALS');
     }
 
-    // Audit Trail Keamanan
-    if (userAgent && ipAddress) {
-      await prismaAuth.auditLog.create({
-        data: {
-          userId: user.id,
-          action: 'USER_LOGIN_TRADITIONAL_SUCCESS',
-          payload: { userAgent, ipAddress, identifier },
-          ipAddress,
-          userAgent,
-        },
-      });
-    }
+    // Audit Trail Keamanan - selalu ditulis (tidak bersyarat)
+    await prismaAuth.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'USER_LOGIN_TRADITIONAL_SUCCESS',
+        payload: { userAgent: userAgent ?? 'unknown', ipAddress: ipAddress ?? 'unknown', identifier },
+        ipAddress: ipAddress ?? 'unknown',
+        userAgent: userAgent ?? 'unknown',
+      },
+    });
 
     const tokens = await tokenService.generateTokenPair(user.id, null, user.role);
     const redirectTarget = executeEcosystemRoleRouting(user.role);
@@ -156,33 +154,40 @@ export const authService = {
         throw new Error('UNAUTHORIZED_GOOGLE_ID_MISMATCH');
       }
     } else {
-      // Auto-Register kustomer baru dari Google
-      user = await prismaAuth.globalUser.create({
-        data: {
-          email,
-          phone: `OAUTH_GOOGLE_${googleId}`, // Dummy phone unik karena phone bersifat required & unique
-          fullName: name || 'User Cariin',
-          role: 'CUSTOMER',
-          isEmailVerified: true,
-          isOauth: true,
-          oauthProvider: 'GOOGLE',
-          oauthProviderId: googleId,
-        },
+      // Auto-Register: buat user + wallet dalam 1 transaksi
+      user = await prismaAuth.$transaction(async (tx) => {
+        const newUser = await tx.globalUser.create({
+          data: {
+            email,
+            phone: null, // nullable setelah migration TUGAS 9
+            fullName: name || 'User Cariin',
+            role: 'CUSTOMER',
+            isEmailVerified: true,
+            isOauth: true,
+            oauthProvider: 'GOOGLE',
+            oauthProviderId: googleId,
+          },
+        });
+
+        // Buat wallet otomatis dengan saldo 0
+        await tx.wallet.create({
+          data: { userId: newUser.id, balance: BigInt(0) },
+        });
+
+        return newUser;
       });
     }
 
-    // Audit Trail Keamanan
-    if (userAgent && ipAddress) {
-      await prismaAuth.auditLog.create({
-        data: {
-          userId: user.id,
-          action: 'USER_LOGIN_GOOGLE_SUCCESS',
-          payload: { userAgent, ipAddress, provider: 'GOOGLE' },
-          ipAddress,
-          userAgent,
-        },
-      });
-    }
+    // Audit Trail Keamanan - selalu ditulis (tidak bersyarat)
+    await prismaAuth.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'USER_LOGIN_GOOGLE_SUCCESS',
+        payload: { userAgent: userAgent ?? 'unknown', ipAddress: ipAddress ?? 'unknown', provider: 'GOOGLE' },
+        ipAddress: ipAddress ?? 'unknown',
+        userAgent: userAgent ?? 'unknown',
+      },
+    });
 
     const tokens = await tokenService.generateTokenPair(user.id, null, user.role);
     const redirectTarget = executeEcosystemRoleRouting(user.role);

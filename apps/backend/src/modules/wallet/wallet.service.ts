@@ -53,60 +53,59 @@ export const walletService = {
   },
 
   async confirmTopup(body: z.infer<typeof ConfirmTopupSchema>) {
-    const transaction = await prismaAuth.walletTransaction.findUniqueOrThrow({
-      where: { id: body.transactionId }
-    });
+    // 1. Cari transaksi via prismaApp + RLS bypass sementara untuk webhook internal
+    //    (webhook sudah terverifikasi HMAC di middleware sebelum sampai sini)
+    const transaction = await prismaApp.$queryRaw<
+      Array<{ id: string; wallet_id: string; user_id: string; amount: bigint; status: string }>
+    >`SELECT id, wallet_id, user_id, amount, status FROM wallet_transactions
+      WHERE id = ${body.transactionId}::uuid LIMIT 1`;
 
-    if (BigInt(body.amountPaid) !== transaction.amount) {
+    if (!transaction[0]) throw new Error('WALLET_NOT_FOUND');
+    const tx = transaction[0];
+
+    if (BigInt(body.amountPaid) !== tx.amount) {
       throw new Error('PAYMENT_AMOUNT_MISMATCH');
     }
 
-    const result = await withRlsContext({ userId: transaction.userId }, async () => {
+    const result = await withRlsContext({ userId: tx.user_id }, async () => {
+      // 2. Update status → COMPLETED (atomic, hanya jika masih PENDING)
       const affected = await prismaApp.$executeRaw`
         UPDATE wallet_transactions
         SET status = 'COMPLETED'
-        WHERE id = ${transaction.id}::uuid AND status = 'PENDING'
+        WHERE id = ${tx.id}::uuid AND status = 'PENDING'
       `;
 
       if (affected === 0) {
-        const existingTx = await prismaApp.walletTransaction.findUniqueOrThrow({ 
-          where: { id: transaction.id } 
-        });
-        return existingTx;
+        // Sudah diproses sebelumnya (idempotent)
+        return prismaApp.walletTransaction.findUniqueOrThrow({ where: { id: tx.id } });
       }
 
-      // ✅ FIX: Ganti $queryRawUnsafe ke $queryRaw untuk menghindari SQL injection risk
-      const walletLocked = await prismaApp.$queryRaw<
-        Array<{ balance: bigint }>
-      >`SELECT balance FROM wallets WHERE id = ${transaction.walletId}::uuid FOR UPDATE`;
-      
-      if (!walletLocked || walletLocked.length === 0) {
-        throw new Error('WALLET_NOT_FOUND');
-      }
-      
-      const balanceBefore = walletLocked[0].balance;
-      const balanceAfter = balanceBefore + transaction.amount;
-
-      const maxBalance = BigInt(env.WALLET_MAX_BALANCE || '50000000');
-      if (balanceAfter > maxBalance) {
-        throw new Error('WALLET_MAX_BALANCE_EXCEEDED');
-      }
-
-      await prismaApp.$executeRaw`
-        UPDATE wallets 
-        SET balance = ${balanceAfter}, updated_at = NOW() 
-        WHERE id = ${transaction.walletId}::uuid
+      // 3. Tambah saldo — satu atomic statement (lebih aman dari SELECT + UPDATE terpisah)
+      const maxBalance = BigInt(env.WALLET_MAX_BALANCE ?? '50000000');
+      const updated = await prismaApp.$executeRaw`
+        UPDATE wallets
+        SET balance    = balance + ${tx.amount},
+            updated_at = NOW()
+        WHERE id = ${tx.wallet_id}::uuid
+          AND balance + ${tx.amount} <= ${maxBalance}
       `;
 
+      if (updated === 0) throw new Error('WALLET_MAX_BALANCE_EXCEEDED');
+
+      // 4. Catat balance_before dan balance_after
+      const wallet = await prismaApp.$queryRaw<Array<{ balance: bigint }>>`
+        SELECT balance FROM wallets WHERE id = ${tx.wallet_id}::uuid
+      `;
+      const balanceAfter  = wallet[0]?.balance ?? BigInt(0);
+      const balanceBefore = balanceAfter - tx.amount;
+
       await prismaApp.$executeRaw`
-        UPDATE wallet_transactions 
+        UPDATE wallet_transactions
         SET balance_before = ${balanceBefore}, balance_after = ${balanceAfter}
-        WHERE id = ${transaction.id}::uuid
+        WHERE id = ${tx.id}::uuid
       `;
 
-      return prismaApp.walletTransaction.findUniqueOrThrow({ 
-        where: { id: transaction.id } 
-      });
+      return prismaApp.walletTransaction.findUniqueOrThrow({ where: { id: tx.id } });
     });
 
     return serializeBigInt(result);
