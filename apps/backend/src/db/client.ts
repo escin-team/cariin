@@ -53,6 +53,20 @@ interface RlsContext {
  * Otomatis memulai transaksi dan meng-inject userId/tenantId ke PostgreSQL session.
  */
 export async function withRlsContext<T>(context: RlsContext, fn: () => Promise<T>): Promise<T> {
+  // Validasi UUID sebelum inject ke PostgreSQL session
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  
+  if (context.userId && !UUID_REGEX.test(context.userId)) {
+    throw new Error(
+      "[RLS SECURITY] userId bukan UUID valid: " + context.userId,
+    );
+  }
+  if (context.tenantId && !UUID_REGEX.test(context.tenantId)) {
+    throw new Error(
+      "[RLS SECURITY] tenantId bukan UUID valid: " + context.tenantId,
+    );
+  }
+
   return prismaBase.$transaction(async (tx) => {
     if (context.userId) {
       await tx.$executeRaw`SELECT set_config('app.current_user_id', ${context.userId}, true)`;

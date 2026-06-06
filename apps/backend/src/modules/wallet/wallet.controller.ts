@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
 import { walletService } from './wallet.service.js';
+import { prismaApp, withRlsContext } from '../../db/client.js';
 
 // Type extension untuk Hono Context dengan custom variables
 type AppContext = Context & {
@@ -47,9 +48,6 @@ export const walletController = {
    */
   async getBalance(c: AppContext): Promise<Response> {
     const userId = c.get('userId') as string;
-
-    // Import langsung di sini untuk hindari circular dependency
-    const { prismaApp, withRlsContext } = await import('../../db/client.js');
 
     const wallet = await withRlsContext({ userId }, async () => {
       return prismaApp.wallet.findUniqueOrThrow({

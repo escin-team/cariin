@@ -10,6 +10,7 @@ import { authRouter } from '../modules/auth/auth.router.js';
 // Import Bootstrap
 import { env } from './env-validation.js';
 import { globalErrorHandler } from '../middleware/error-handler.js';
+import { prismaApp } from '../db/client.js';
 
 // ✅ Side-effect import: Inisialisasi Sentry + PII Strip (Rule SENTRY-1)
 import '../middleware/sentry.js';
@@ -52,6 +53,40 @@ app.route('/v1/wallet', walletRouter);
 
 // ===== 6. Health Check =====
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString(), version: '0.1.0' }));
+
+// ===== 6b. Readiness Check — cek DB + Redis =====
+app.get('/health/ready', async (c) => {
+  const checks: Record<string, 'ok' | 'error'> = {};
+  let allOk = true;
+
+  // Cek PostgreSQL
+  try {
+    await prismaApp.$queryRaw`SELECT 1`;
+    checks.database = 'ok';
+  } catch {
+    checks.database = 'error';
+    allOk = false;
+  }
+
+  // Cek Redis (tidak fatal jika down)
+  try {
+    const { redis } = await import('../cache/redis.js');
+    await redis.ping();
+    checks.redis = 'ok';
+  } catch {
+    checks.redis = 'error';
+    // Redis tidak blokir traffic
+  }
+
+  return c.json(
+    {
+      status: allOk ? 'ready' : 'degraded',
+      checks,
+      timestamp: new Date().toISOString(),
+    },
+    allOk ? 200 : 503,
+  );
+});
 
 // ===== 7. 404 Handler =====
 app.notFound((c) => c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Endpoint tidak ditemukan.' } }, 404));

@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server';
 import { app } from './bootstrap/app.js';
 import { env } from './bootstrap/env-validation.js';
 import { disconnectAll } from './db/client.js';
+import { scheduleTokenCleanup } from './jobs/token-cleanup.job.js';
 
 /**
  * Server Entry Point
@@ -25,10 +26,14 @@ const server = serve(
     fetch: app.fetch,
     port,
   },
-  (info) => {
+  async (info) => {
     console.log(`🚀 Server running at http://localhost:${info.port}`);
     console.log(`📋 Health check: http://localhost:${info.port}/health`);
     console.log(`💰 Wallet topup: POST http://localhost:${info.port}/v1/wallet/topup`);
+    
+    // Start background jobs
+    await scheduleTokenCleanup();
+    console.log("⚙️  Background jobs started");
   }
 );
 

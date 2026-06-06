@@ -46,6 +46,9 @@ export const verifyWebhook = (provider: 'XENDIT' | 'MIDTRANS' | 'INTERNAL') => {
   };
 };
 
-// 👇 TAMBAHAN: Alias backward-compatibility 
+// 👇 TAMBAHAN: Alias yang lebih deskriptif (TUGAS 15)
+export const verifyWebhookSignature = verifyWebhook;
+
+// 👇 Alias backward-compatibility 
 // Agar router yang mengimport `internalAuthMiddleware` tidak error
 export const internalAuthMiddleware = verifyWebhook;

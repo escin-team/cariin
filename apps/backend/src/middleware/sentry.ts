@@ -1,11 +1,10 @@
-// @ts-expect-error - missing types
 import * as Sentry from '@sentry/node';
 import { env } from '../bootstrap/env-validation.js';
 
 Sentry.init({
   dsn: env.SENTRY_DSN,
   environment: env.NODE_ENV,
-  tracesSampleRate: 1.0,
+  tracesSampleRate: env.NODE_ENV === 'production' ? 0.1 : 1.0,
   beforeSend(event: any) {
     if (event.request) {
       if (event.request.cookies) delete event.request.cookies;
