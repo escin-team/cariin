@@ -1,6 +1,31 @@
-```
-# Dependencies
+# ==========================================
+# ENVIRONMENT & SECRETS (CRITICAL)
+# ==========================================
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
+# Jangan abaikan .env.example agar tim lain bisa melihat template variabel
+!.env.example
+
+# Private Keys (JWT, SSL, etc)
+*.pem
+*.key
+credentials/
+secrets/
+
+# ==========================================
+# DEPENDENCIES
+# ==========================================
 node_modules/
+.pnpm-store/
+bun.lockb
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+!apps/**/pnpm-lock.yaml # Jika lockfile ada di subfolder, sesuaikan jika perlu
 
 # Environment variables
 .env
@@ -52,6 +77,45 @@ venv/
 *.tar.zst
 
 # IDE and editor files
+# ==========================================
+# BUILD OUTPUTS
+# ==========================================
+# Next.js
+.next/
+out/
+export/
+
+# General Build
+dist/
+build/
+target/
+*.tsbuildinfo
+
+# Bun specific
+.bun/
+
+# ==========================================
+# DATABASE & ORM
+# ==========================================
+# Prisma
+prisma/migrations/
+# Schema prisma biasanya di-commit, tapi backup di-ignore
+prisma/schema.prisma.bak
+
+# Local Database Files (SQLite, Dev DB dumps)
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.sql.gz
+
+# Redis Dump (Jika running local tanpa docker volume)
+dump.rdb
+appendonly.aof
+
+# ==========================================
+# IDE & EDITORS
+# ==========================================
 .vscode/
 .idea/
 *.swp
@@ -59,8 +123,33 @@ venv/
 *.tmp
 
 # System files
+*~
+.project
+.classpath
+.settings/
+
+# ==========================================
+# OPERATING SYSTEM
+# ==========================================
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+desktop.ini
+
+# ==========================================
+# LOGS & TEMP
+# ==========================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
 # Testing and coverage
 coverage/
@@ -76,3 +165,31 @@ htmlcov/
 *.tmp
 *.temp
 ```
+*.tmp
+*.temp
+.cache/
+.tmp/
+
+# ==========================================
+# TESTING & COVERAGE
+# ==========================================
+coverage/
+.nyc_output/
+.coverage
+htmlcov/
+.junit.xml
+test-results/
+
+# ==========================================
+# COMPRESSION (Optional - Uncomment if needed)
+# ==========================================
+# *.zip
+# *.tar.gz
+# *.rar
+
+# ==========================================
+# SPECIFIC PROJECT CLEANUP
+# ==========================================
+# Jika ada folder hasil generate otomatis lainnya
+generated/
+artifacts/
