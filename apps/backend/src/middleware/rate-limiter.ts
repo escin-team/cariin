@@ -1,43 +1,42 @@
 import type { Context, Next } from 'hono';
+import { redis } from '../cache/redis.js';
 
 /**
  * Rate Limiter Middleware — Rule [API-3] Fallback Chain IP
  * Production: Redis Lua atomic counter
- * Stub: In-memory Map (untuk development)
  * 
  * IP detection fallback chain:
  * CF-Connecting-IP → X-Forwarded-For → X-Real-IP → 'unknown'
- * ❌ DILARANG: hanya CF header tanpa fallback — crash di dev/staging
  */
 
-// Rate limit config — dari blueprint + tambahan wallet:balance
+// Rate limit config
 const RATE_LIMITS: Record<string, { windowMs: number; max: number }> = {
   'auth:login':          { windowMs: 15 * 60_000, max: 10 },
   'auth:register':       { windowMs: 60 * 60_000, max: 5 },
   'auth:otp-request':    { windowMs: 60_000,       max: 3 },
   'auth:otp-verify':     { windowMs: 15 * 60_000, max: 5 },
-  'auth:refresh':        { windowMs: 60_000,       max: 30 }, // ✅ Tambahan untuk refresh token
+  'auth:refresh':        { windowMs: 60_000,       max: 30 },
   'orders:create':       { windowMs: 60_000,       max: 10 },
   'wallet:topup':        { windowMs: 60 * 60_000, max: 20 },
-  'wallet:balance':      { windowMs: 60_000,       max: 60 }, // ✅ FIX: 60x per menit (cukup longgar untuk cek saldo)
+  'wallet:balance':      { windowMs: 60_000,       max: 60 },
   'feature-flags:fetch': { windowMs: 60_000,       max: 60 },
 };
 
-// In-memory store (stub — production pakai Redis Lua)
-interface RateLimitEntry {
-  count: number;
-  resetAt: number;
-}
-const store = new Map<string, RateLimitEntry>();
+// Lua script: atomic increment + set expiry hanya pada counter baru
+const LUA_SCRIPT = `
+local n = redis.call('INCR', KEYS[1])
+if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+return n
+`;
 
 /**
  * Get client IP with fallback chain — Rule [API-3]
  */
 function getClientIp(c: Context): string {
   return (
-    c.req.header('CF-Connecting-IP') ||                          // Production via Cloudflare
-    c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() ||    // Staging/LB
-    c.req.header('X-Real-IP') ||                                 // Nginx
+    c.req.header('CF-Connecting-IP') ||
+    c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() ||
+    c.req.header('X-Real-IP') ||
     'unknown'
   );
 }
@@ -49,7 +48,7 @@ function getClientIp(c: Context): string {
  */
 export function rateLimiter(
   limitKey: string,
-  identifierType: 'ip' | 'userId' = 'userId'
+  identifierType: 'ip' | 'userId' = 'ip'
 ): (c: Context, next: Next) => Promise<Response | void> {
   const config = RATE_LIMITS[limitKey];
 
@@ -62,49 +61,40 @@ export function rateLimiter(
       ? (c.get('userId') as string | undefined) ?? getClientIp(c)
       : getClientIp(c);
 
-    const storeKey = `${limitKey}:${identifier}`;
-    const now = Date.now();
+    const redisKey = `rl:${limitKey}:${identifier}`;
+    const windowSec = Math.ceil(config.windowMs / 1000);
 
-    // Cleanup expired entry
-    const entry = store.get(storeKey);
-    if (entry && entry.resetAt <= now) {
-      store.delete(storeKey);
+    let current = config.max + 1; // fallback: lewatkan jika Redis down
+    try {
+      current = (await redis.eval(
+        LUA_SCRIPT,
+        1,
+        redisKey,
+        windowSec,
+      )) as number;
+    } catch {
+      // Redis down → jangan blokir user, log saja
+      console.warn('[RateLimit] Redis unavailable, skipping rate limit');
+      return next();
     }
 
-    const current = store.get(storeKey);
-
-    if (current) {
-      if (current.count >= config.max) {
-        const retryAfterSec = Math.ceil((current.resetAt - now) / 1000);
-        c.header('Retry-After', String(retryAfterSec));
-        c.header('X-RateLimit-Limit', String(config.max));
-        c.header('X-RateLimit-Remaining', '0');
-        c.header('X-RateLimit-Reset', String(Math.ceil(current.resetAt / 1000)));
-
-        return c.json(
-          {
-            success: false,
-            error: {
-              code: 'RATE_LIMIT_EXCEEDED',
-              message: 'Terlalu banyak permintaan. Silakan coba lagi nanti.',
-              retryAfterSeconds: retryAfterSec,
-            },
-          },
-          429
-        );
-      }
-      current.count++;
-    } else {
-      store.set(storeKey, {
-        count: 1,
-        resetAt: now + config.windowMs,
-      });
-    }
-
-    const updated = store.get(storeKey)!;
     c.header('X-RateLimit-Limit', String(config.max));
-    c.header('X-RateLimit-Remaining', String(config.max - updated.count));
-    c.header('X-RateLimit-Reset', String(Math.ceil(updated.resetAt / 1000)));
+    c.header('X-RateLimit-Remaining', String(Math.max(0, config.max - current)));
+
+    if (current > config.max) {
+      c.header('Retry-After', String(windowSec));
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: 'RATE_LIMIT_EXCEEDED',
+            message: 'Terlalu banyak permintaan. Silakan coba lagi nanti.',
+            retryAfterSeconds: windowSec,
+          },
+        },
+        429
+      );
+    }
 
     await next();
   };

@@ -17,9 +17,12 @@
     "@hono/zod-validator": "^0.4.2",
     "@prisma/client": "^6.19.3",
     "@sentry/node": "^10.56.0",
+    "@types/ioredis": "^4.28.10",
     "bcrypt": "^6.0.0",
+    "bullmq": "^5.78.0",
     "google-auth-library": "^10.6.2",
     "hono": "^4.7.0",
+    "ioredis": "^5.11.1",
     "jsonwebtoken": "^9.0.3",
     "zod": "^3.24.0"
   },

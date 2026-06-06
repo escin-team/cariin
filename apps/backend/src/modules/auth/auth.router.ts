@@ -6,6 +6,7 @@ import { LoginSchema, GoogleLoginSchema, RegisterSchema } from './auth.schema.js
 import { authService } from './auth.service.js';
 import { tokenService } from './token.service.js';
 import { authMiddleware } from '../../middleware/auth.js'; // ✅ Import authMiddleware
+import { rateLimiter } from '../../middleware/rate-limiter.js';
 
 export const authRouter = new Hono();
 
@@ -53,6 +54,7 @@ function getClientIp(c: any): string | undefined {
 // =====================================================================
 authRouter.post(
   '/register',
+  rateLimiter('auth:register', 'ip'),
   zValidator('json', RegisterSchema),
   async (c) => {
     const { fullName, phone, password, email } = c.req.valid('json');
@@ -74,6 +76,7 @@ authRouter.post(
 // =====================================================================
 authRouter.post(
   '/login',
+  rateLimiter('auth:login', 'ip'),
   zValidator('json', LoginSchema),
   async (c) => {
     const { identifier, password } = c.req.valid('json');
@@ -106,6 +109,7 @@ authRouter.post(
 // =====================================================================
 authRouter.post(
   '/google',
+  rateLimiter('auth:login', 'ip'),
   zValidator('json', GoogleLoginSchema),
   async (c) => {
     const { idToken } = c.req.valid('json');
@@ -129,33 +133,37 @@ authRouter.post(
 // =====================================================================
 // ENDPOINT 4: REFRESH TOKEN (Aturan AUTH-4: Token Rotation)
 // =====================================================================
-authRouter.post('/refresh', async (c) => {
-  const refreshToken = getCookie(c, 'refresh_token');
+authRouter.post(
+  '/refresh',
+  rateLimiter('auth:refresh', 'ip'),
+  async (c) => {
+    const refreshToken = getCookie(c, 'refresh_token');
 
-  if (!refreshToken) {
-    return c.json({ success: false, error: { code: 'TOKEN_INVALID', message: 'Refresh token tidak ditemukan.' } }, 401);
+    if (!refreshToken) {
+      return c.json({ success: false, error: { code: 'TOKEN_INVALID', message: 'Refresh token tidak ditemukan.' } }, 401);
+    }
+
+    try {
+      // rotate() otomatis mendeteksi reuse attack dan membakar family jika dicuri
+      const result = await tokenService.rotate(refreshToken);
+
+      // Timpa cookie dengan token baru
+      injectSecureCookies(c, result.accessToken, result.refreshToken);
+
+      return c.json({
+        success: true,
+        message: 'Token refreshed',
+        data: { accessToken: result.accessToken },
+      });
+    } catch (err: any) {
+      // Jika SESSION_COMPROMISED atau SESSION_EXPIRED, hapus cookie paksa
+      setCookie(c, 'session_token', '', { maxAge: 0, path: '/' });
+      setCookie(c, 'refresh_token', '', { maxAge: 0, path: '/v1/auth/refresh' });
+
+      throw err; // Lempar ke globalErrorHandler
+    }
   }
-
-  try {
-    // rotate() otomatis mendeteksi reuse attack dan membakar family jika dicuri
-    const result = await tokenService.rotate(refreshToken);
-
-    // Timpa cookie dengan token baru
-    injectSecureCookies(c, result.accessToken, result.refreshToken);
-
-    return c.json({
-      success: true,
-      message: 'Token refreshed',
-      data: { accessToken: result.accessToken },
-    });
-  } catch (err: any) {
-    // Jika SESSION_COMPROMISED atau SESSION_EXPIRED, hapus cookie paksa
-    setCookie(c, 'session_token', '', { maxAge: 0, path: '/' });
-    setCookie(c, 'refresh_token', '', { maxAge: 0, path: '/v1/auth/refresh' });
-
-    throw err; // Lempar ke globalErrorHandler
-  }
-});
+);
 
 // =====================================================================
 // ENDPOINT 5: LOGOUT (Revoke All Tokens & Clear Cookies)

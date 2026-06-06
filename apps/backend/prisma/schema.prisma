@@ -99,7 +99,7 @@ model RefreshToken {
 /// User global — satu user bisa punya banyak tenant role (USER_SCOPED)
 model GlobalUser {
   id              String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  phone           String         @unique @map("phone")
+  phone           String?        @map("phone")
   fullName        String         @map("full_name")
   email           String?        @unique @map("email")
   
