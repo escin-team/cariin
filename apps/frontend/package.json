@@ -1,0 +1,19 @@
+{
+  "name": "@cariin/frontend",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "turbo run dev --filter=./apps/*",
+    "build": "turbo run build --filter=./apps/*",
+    "lint": "turbo run lint --filter=./apps/*"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}

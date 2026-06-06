@@ -1,0 +1,14 @@
+{
+  "name": "@cariin/http-client",
+  "version": "2.0.0",
+  "private": true,
+  "main": "./src/client.ts",
+  "types": "./src/client.ts",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "ky": "^1.2.0"
+  }
+}
