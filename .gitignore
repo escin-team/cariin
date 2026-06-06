@@ -1,16 +1,27 @@
+```
+# Dependencies
 node_modules/
+.pnpm-store/
+.yarn/
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
 dist/
-plan/
-.env
-.DS_Store
-coverage/
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-.vercel/
-.next/
 build/
-.prisma/
+.next/
+out/
+
+# Development
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+*.log
+
+# Coverage
+coverage/
+.nyc_output/
+```
