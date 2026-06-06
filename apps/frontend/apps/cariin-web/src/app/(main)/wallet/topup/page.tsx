@@ -54,7 +54,7 @@ export default function WalletTopupPage() {
     try {
       const idempotencyKey = crypto.randomUUID();
       const res = await cariinApi
-        .post('v1/wallet/topup', {
+        .post('v1/wallet/topup/initiate', {
           json: data,
           headers: { 'X-Idempotency-Key': idempotencyKey },
         })
